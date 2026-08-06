@@ -1,6 +1,49 @@
-@UrlShortener.Api_HostAddress = http://localhost:5071
-
-GET http://localhost:5071/
+GET http://localhost:5071/health
 Accept: application/json
 
 ###
+
+POST http://localhost:5071/
+Content-Type: application/json
+
+{
+  "url": "https://www.google.com"
+}
+
+###
+
+# GET http://localhost:5071/oTVCJFI
+# Accept: application/json
+# Do this in browser
+
+###
+
+GET http://localhost:5071/notReal
+Accept: application/json
+
+###
+
+POST http://localhost:5071/
+Content-Type: application/json
+
+{
+  "url": "google"
+}
+
+###
+
+POST http://localhost:5071/
+Content-Type: application/json
+
+{
+  "url": "1234"
+}
+
+###
+
+POST http://localhost:5071/
+Content-Type: application/json
+
+{
+  "url": ""
+}

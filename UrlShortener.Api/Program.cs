@@ -1,16 +1,19 @@
 using UrlShortener.Api.Data;
+using UrlShortener.Api.Routes;
 
 var builder = WebApplication.CreateBuilder(args);
 
+var baseUrl = builder.Configuration["BaseUrl"];
+
+builder.Services.AddValidation();
 builder.AddUrlShortenerDb();
 
 var app = builder.Build();
 
 app.UseHttpsRedirection();
 
-app.MapGet("/", () => Results.Ok());
-// app.MapGet("/{code}", (string code) => Results.Redirect(..., true)).WithName("Redirect");
-// app.MapPost("/", (string url) => Results.CreatedAtRoute("Redirect", ...));
+app.MapGet("/health", () => Results.Ok());
+app.MapLinkRoutes();
 
 app.MigrateDb();
 
