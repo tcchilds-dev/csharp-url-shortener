@@ -5,8 +5,11 @@ var builder = WebApplication.CreateBuilder(args);
 
 var baseUrl = builder.Configuration["BaseUrl"];
 
+// TODO: implement proper logging
+
 builder.Services.AddValidation();
-builder.AddUrlShortenerDb();
+builder.AddSqlDb();
+builder.AddRedisDb();
 
 var app = builder.Build();
 

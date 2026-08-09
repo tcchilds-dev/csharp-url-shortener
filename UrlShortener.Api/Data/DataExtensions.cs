@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using StackExchange.Redis;
 
 namespace UrlShortener.Api.Data;
 
@@ -11,9 +12,17 @@ public static class DataExtensions
         dbContext.Database.Migrate();
     }
 
-    public static void AddUrlShortenerDb(this WebApplicationBuilder builder)
+    public static void AddSqlDb(this WebApplicationBuilder builder)
     {
         builder.Services.AddDbContext<UrlShortenerContext>(options =>
-            options.UseSqlServer(builder.Configuration.GetConnectionString("UrlShortener")));
+            options.UseSqlServer(builder.Configuration.GetConnectionString("UrlShortener"))
+        );
+    }
+
+    public static void AddRedisDb(this WebApplicationBuilder builder)
+    {
+        builder.Services.AddSingleton<IConnectionMultiplexer>(
+            ConnectionMultiplexer.Connect(builder.Configuration.GetConnectionString("Redis")!)
+        );
     }
 }

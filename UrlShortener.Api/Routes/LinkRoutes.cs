@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using StackExchange.Redis;
 using UrlShortener.Api.Data;
 using UrlShortener.Api.Models;
 using UrlShortener.Api.Utilities;
@@ -13,38 +14,62 @@ public static class LinkRoutes
     {
         // GET /:code
         // Takes a shortened url and redirects the client to the original url.
-        // TODO: implement redis caching
+        // TODO: add background worker for click count
         app.MapGet(
                 "/{code}",
-                async (string code, UrlShortenerContext dbContext) =>
+                async (
+                    string code,
+                    UrlShortenerContext dbContext,
+                    IConnectionMultiplexer redis,
+                    ILogger<Program> logger
+                ) =>
                 {
-                    var link = await dbContext.Links.SingleOrDefaultAsync(link =>
-                        link.ShortCode == code
-                    );
+                    IDatabase cache = redis.GetDatabase();
 
-                    if (link is null)
+                    // TODO: refresh TTL?
+                    var redisLink = await cache.StringGetAsync(code);
+
+                    if (redisLink != RedisValue.Null)
                     {
-                        return Results.NotFound();
+                        logger.LogDebug("Cache hit for short code: {shortCode}", code);
+                        return Results.Redirect(redisLink.ToString(), permanent: false);
                     }
+                    else
+                    {
+                        logger.LogDebug("Cache miss for short code: {shortCode}", code);
 
-                    link.ClickCount++;
+                        var link = await dbContext.Links.SingleOrDefaultAsync(link =>
+                            link.ShortCode == code
+                        );
 
-                    await dbContext.SaveChangesAsync();
+                        if (link is null)
+                        {
+                            return Results.NotFound();
+                        }
 
-                    return Results.Redirect(link.OriginalUrl.ToString(), permanent: false);
+                        await dbContext.SaveChangesAsync();
+
+                        return Results.Redirect(link.OriginalUrl.ToString(), permanent: false);
+                    }
                 }
             )
             .WithName("Redirect");
 
         // POST /
         // Takes a url and returns a short code url.
-        // TODO: implement redis caching
         app.MapPost(
             "/",
-            (ShortenUrlRequest request, UrlShortenerContext dbContext) =>
+            async (
+                ShortenUrlRequest request,
+                UrlShortenerContext dbContext,
+                IConnectionMultiplexer redis,
+                ILogger<Program> logger
+            ) =>
             {
                 if (!request.Url.IsAbsoluteUri)
                     return Results.BadRequest("An absolute (full) url is required.");
+
+                IDatabase cache = redis.GetDatabase();
 
                 var shortCode = ShortCodeGenerator.Generate();
 
@@ -52,18 +77,21 @@ public static class LinkRoutes
 
                 var entry = new Link { OriginalUrl = urlString, ShortCode = shortCode };
 
-                dbContext.Links.Add(entry);
+                await dbContext.Links.AddAsync(entry);
 
                 try
                 {
-                    dbContext.SaveChanges();
+                    await dbContext.SaveChangesAsync();
                 }
                 catch (Exception e)
                 {
-                    Console.WriteLine(e);
+                    logger.LogError("{errorMessage}", e.Message);
                     return Results.InternalServerError();
                 }
-                // TODO: will implement retries at some point
+                // TODO: implement retries
+
+                // TODO: configure TTL
+                await cache.StringSetAsync(shortCode, urlString);
 
                 return Results.Created(
                     $"localhost:5071/{shortCode}",
