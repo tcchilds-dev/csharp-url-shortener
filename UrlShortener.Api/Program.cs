@@ -1,13 +1,15 @@
 using UrlShortener.Api.Data;
+using UrlShortener.Api.RateLimiting;
 using UrlShortener.Api.Routes;
 
 var builder = WebApplication.CreateBuilder(args);
 
 var baseUrl = builder.Configuration["BaseUrl"];
 
-// TODO: implement proper logging
-
 builder.Services.AddValidation();
+builder.Services.AddSingleton<ClicksUpdateQueue>();
+builder.Services.AddHostedService<ClicksUpdateWorker>();
+builder.AddRateLimiters();
 builder.AddSqlDb();
 builder.AddRedisDb();
 
