@@ -108,8 +108,6 @@ docker compose down -v
 
 > [!NOTE] For now, the base URL should be `localhost:5071`
 
----
-
 #### `POST <baseURL>/shorten`
 
 Send a full URL and receive a shortened link.
@@ -127,8 +125,6 @@ Example Receive:
 ```Bash
 "eXpL123"
 ```
-
----
 
 #### `GET <baseURL>/{code}`
 
