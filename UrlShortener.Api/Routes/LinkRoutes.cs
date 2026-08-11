@@ -1,3 +1,4 @@
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using StackExchange.Redis;
 using UrlShortener.Api.Data;
@@ -11,10 +12,18 @@ public record ShortenUrlRequest(Uri Url);
 
 public static class LinkRoutes
 {
+    const int maxAttempts = 3;
+
+    static bool IsUniqueConstraintViolation(DbUpdateException exception)
+    {
+        return exception.InnerException is SqlException sqlException
+            && sqlException.Number is 2601 or 2627;
+    }
+
     public static void MapLinkRoutes(this WebApplication app)
     {
-        // GET /:code
-        // Takes a shortened url and redirects the client to the original url.
+        // GET /{code}
+        // Takes a shortened URL and redirects the client to the original URL.
         app.MapGet(
                 "/{code}",
                 async (
@@ -27,44 +36,36 @@ public static class LinkRoutes
                 ) =>
                 {
                     IDatabase cache = redis.GetDatabase();
-
                     // TODO: refresh TTL?
                     var redisLink = await cache.StringGetAsync(code);
-
                     if (redisLink != RedisValue.Null)
                     {
                         logger.LogInformation("Cache hit for short code: {shortCode}", code);
-
                         await clicksUpdateQueue.EnqueueAsync(
                             new ClicksUpdateJob(code),
                             stoppingToken
                         );
-
                         return Results.Redirect(redisLink.ToString(), permanent: false);
                     }
                     else
                     {
                         logger.LogInformation("Cache miss for short code: {shortCode}", code);
-
                         var link = await dbContext.Links.SingleOrDefaultAsync(link =>
                             link.ShortCode == code
                         );
-
                         if (link is null)
                         {
                             return Results.NotFound();
                         }
-
                         await dbContext.SaveChangesAsync();
-
                         return Results.Redirect(link.OriginalUrl.ToString(), permanent: false);
                     }
                 }
             )
             .WithName("Redirect");
 
-        // POST /
-        // Takes a url and returns a short code url.
+        // POST /shorten
+        // Takes a URL and returns a short code URL.
         app.MapPost(
                 "/shorten",
                 async (
@@ -75,37 +76,27 @@ public static class LinkRoutes
                 ) =>
                 {
                     if (!request.Url.IsAbsoluteUri)
-                        return Results.BadRequest("An absolute (full) url is required.");
-
+                        return Results.BadRequest("An absolute (full) URL is required.");
                     IDatabase cache = redis.GetDatabase();
-
-                    var shortCode = ShortCodeGenerator.Generate();
-
-                    var urlString = $"{request.Url}";
-
-                    var entry = new Link { OriginalUrl = urlString, ShortCode = shortCode };
-
-                    await dbContext.Links.AddAsync(entry);
-
-                    try
+                    var URLString = $"{request.Url}";
+                    for (var attempt = 1; attempt <= maxAttempts; attempt++)
                     {
-                        await dbContext.SaveChangesAsync();
+                        var shortCode = ShortCodeGenerator.Generate();
+                        var link = new Link { OriginalUrl = URLString, ShortCode = shortCode };
+                        dbContext.Links.Add(link);
+                        try
+                        {
+                            await dbContext.SaveChangesAsync();
+                            // TODO: configure TTL
+                            await cache.StringSetAsync(shortCode, URLString);
+                            return Results.Created("$/{shortCode}", link.ShortCode);
+                        }
+                        catch (DbUpdateException e) when (IsUniqueConstraintViolation(e))
+                        {
+                            dbContext.Entry(link).State = EntityState.Detached;
+                        }
                     }
-                    catch (Exception e)
-                    {
-                        logger.LogError("{errorMessage}", e.Message);
-                        return Results.InternalServerError();
-                    }
-                    // TODO: implement retries
-
-                    // TODO: configure TTL
-                    await cache.StringSetAsync(shortCode, urlString);
-
-                    return Results.Created(
-                        $"localhost:5071/{shortCode}",
-                        $"localhost:5071/{shortCode}"
-                    );
-                    // TODO: need to implement proper link return with baseurl
+                    return Results.InternalServerError("Could not generate a unique short code.");
                 }
             )
             .RequireRateLimiting(RateLimitingExtensions.PostLimiter);

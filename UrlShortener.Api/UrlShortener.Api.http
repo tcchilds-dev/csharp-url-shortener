@@ -3,18 +3,17 @@ Accept: application/json
 
 ###
 
-POST http://localhost:5071/
+POST http://localhost:5071/shorten
 Content-Type: application/json
 
 {
-  "url": "https://www.google.com"
+  "URL": "https://www.google.com"
 }
 
 ###
 
-# GET http://localhost:5071/oTVCJFI
-# Accept: application/json
-# Do this in browser
+GET http://localhost:5071/SpTJrHo
+Accept: application/json
 
 ###
 
@@ -27,7 +26,7 @@ POST http://localhost:5071/
 Content-Type: application/json
 
 {
-  "url": "google"
+  "URL": "google"
 }
 
 ###
@@ -36,7 +35,7 @@ POST http://localhost:5071/
 Content-Type: application/json
 
 {
-  "url": "1234"
+  "URL": "1234"
 }
 
 ###
@@ -45,5 +44,5 @@ POST http://localhost:5071/
 Content-Type: application/json
 
 {
-  "url": ""
+  "URL": ""
 }

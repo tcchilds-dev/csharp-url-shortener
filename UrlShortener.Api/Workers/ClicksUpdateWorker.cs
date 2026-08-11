@@ -25,22 +25,16 @@ public class ClicksUpdateWorker : BackgroundService
             try
             {
                 using var scope = _scopedFactory.CreateScope();
-
                 var dbContext = scope.ServiceProvider.GetRequiredService<UrlShortenerContext>();
-
                 var link = await dbContext.Links.SingleOrDefaultAsync(link =>
                     link.ShortCode == job.ShortCode
                 );
-
                 if (link is null)
                 {
                     _logger.LogWarning("Link for code {ShortCode} not found.", job.ShortCode);
-
                     continue;
                 }
-
                 link.ClickCount++;
-
                 // TODO: try catch?
                 await dbContext.SaveChangesAsync(stoppingToken);
             }
