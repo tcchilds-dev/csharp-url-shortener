@@ -46,7 +46,6 @@ This README was written entirely by myself.
   so you can see how popular it is.
 - **Playground**: A basic frontend where you can play around with the
   functionality and view some server performance stats.
-- **Link Leaderboard**: A leaderboard of the top 10 links based on click count.
 
 ## Installation
 
