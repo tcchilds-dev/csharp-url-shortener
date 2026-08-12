@@ -25,84 +25,167 @@ public static class LinkRoutes
     {
         // GET /{code}
         // Takes a shortened URL and redirects the client to the original URL.
-        // TODO: performance logs will be sent to the frontend once it has been created
         app.MapGet(
-                "/{code}",
-                async (
-                    string code,
-                    UrlShortenerContext dbContext,
-                    IConnectionMultiplexer redis,
-                    ILogger<Program> logger,
-                    ClicksUpdateQueue clicksUpdateQueue,
-                    CancellationToken stoppingToken
-                ) =>
+            "/{code}",
+            async (
+                string code,
+                UrlShortenerContext dbContext,
+                IConnectionMultiplexer redis,
+                ILogger<Program> logger,
+                ClicksUpdateQueue clicksUpdateQueue,
+                CancellationToken stoppingToken
+            ) =>
+            {
+                IDatabase cache = redis.GetDatabase();
+                var stopwatch = Stopwatch.StartNew();
+                var redisLink = await cache.StringGetAsync(code);
+                if (redisLink != RedisValue.Null)
                 {
-                    IDatabase cache = redis.GetDatabase();
-                    var stopwatch = Stopwatch.StartNew();
-                    var redisLink = await cache.StringGetAsync(code);
-                    if (redisLink != RedisValue.Null)
+                    logger.LogInformation(
+                        "Cache hit for {ShortCode}: lookup took {ElapsedMs:F2}ms",
+                        code,
+                        stopwatch.Elapsed.TotalMilliseconds
+                    );
+                    try
                     {
-                        // NOTE: may change time measurement units
-                        logger.LogInformation(
-                            "Cache hit for {ShortCode}: lookup took {ElapsedMs:F2}ms",
-                            code,
-                            stopwatch.Elapsed.TotalMilliseconds
+                        await clicksUpdateQueue.EnqueueAsync(
+                            new ClicksUpdateJob(code),
+                            stoppingToken
                         );
-                        try
-                        {
-                            await clicksUpdateQueue.EnqueueAsync(
-                                new ClicksUpdateJob(code),
-                                stoppingToken
-                            );
-                        }
-                        catch (Exception e)
-                        {
-                            logger.LogError(
-                                e,
-                                "Failed to enqueue click update job for code {ShortCode}",
-                                code
-                            );
-                        }
-                        logger.LogInformation(
-                            "{ShortCode}: cache hit - request completed in {ElapsedMs:F2}ms",
-                            code,
-                            stopwatch.Elapsed.TotalMilliseconds
-                        );
-                        return Results.Redirect(redisLink.ToString(), permanent: false);
                     }
-                    else
+                    catch (Exception e)
                     {
-                        logger.LogInformation("Cache miss for short code: {ShortCode}", code);
-                        var link = await dbContext.Links.SingleOrDefaultAsync(link =>
-                            link.ShortCode == code
+                        logger.LogError(
+                            e,
+                            "Failed to enqueue click update job for code {ShortCode}",
+                            code
                         );
-                        if (link is null)
-                        {
-                            return Results.NotFound();
-                        }
-                        try
-                        {
-                            link.ClickCount++;
-                            await dbContext.SaveChangesAsync();
-                        }
-                        catch (Exception e)
-                        {
-                            logger.LogError(
-                                e,
-                                "Failed to update click count for {ShortCode}",
-                                code
-                            );
-                        }
-                        logger.LogInformation(
-                            "{ShortCode}: cache miss - request completed in {ElapsedMs:F2}",
-                            code,
-                            stopwatch.Elapsed.TotalMilliseconds
-                        );
-                        return Results.Redirect(link.OriginalUrl.ToString(), permanent: false);
                     }
+                    logger.LogInformation(
+                        "{ShortCode}: cache hit - request completed in {ElapsedMs:F2}ms",
+                        code,
+                        stopwatch.Elapsed.TotalMilliseconds
+                    );
+                    return Results.Redirect(redisLink.ToString(), permanent: false);
                 }
-            )
-            .WithName("Redirect");
+                else
+                {
+                    logger.LogInformation("Cache miss for short code: {ShortCode}", code);
+                    var link = await dbContext.Links.SingleOrDefaultAsync(link =>
+                        link.ShortCode == code
+                    );
+                    if (link is null)
+                    {
+                        return Results.NotFound();
+                    }
+                    try
+                    {
+                        link.ClickCount++;
+                        await dbContext.SaveChangesAsync();
+                    }
+                    catch (Exception e)
+                    {
+                        logger.LogError(e, "Failed to update click count for {ShortCode}", code);
+                    }
+                    logger.LogInformation(
+                        "{ShortCode}: cache miss - request completed in {ElapsedMs:F2}",
+                        code,
+                        stopwatch.Elapsed.TotalMilliseconds
+                    );
+                    return Results.Redirect(link.OriginalUrl.ToString(), permanent: false);
+                }
+            }
+        );
+
+        // GET /{code}/blank
+        // Like redirect but gives you performance stats instead of redirecting.
+        app.MapGet(
+            "/{code}/blank",
+            async (
+                string code,
+                UrlShortenerContext dbContext,
+                IConnectionMultiplexer redis,
+                ILogger<Program> logger,
+                ClicksUpdateQueue clicksUpdateQueue,
+                CancellationToken stoppingToken
+            ) =>
+            {
+                IDatabase cache = redis.GetDatabase();
+                var stopwatch = Stopwatch.StartNew();
+                var redisLink = await cache.StringGetAsync(code);
+                double lookupTime;
+                double requestTime;
+                string results;
+                if (redisLink != RedisValue.Null)
+                {
+                    lookupTime = stopwatch.Elapsed.TotalMilliseconds;
+                    try
+                    {
+                        await clicksUpdateQueue.EnqueueAsync(
+                            new ClicksUpdateJob(code),
+                            stoppingToken
+                        );
+                    }
+                    catch (Exception e)
+                    {
+                        logger.LogError(
+                            e,
+                            "Failed to enqueue click update job for code {ShortCode}",
+                            code
+                        );
+                    }
+                    requestTime = stopwatch.Elapsed.TotalMilliseconds;
+                    results =
+                        $"Cache Hit\nRedis Lookup: {lookupTime:F2}ms\nRequest Completed In: {requestTime:F2}ms";
+                    return Results.Text(results);
+                }
+                else
+                {
+                    var link = await dbContext.Links.SingleOrDefaultAsync(link =>
+                        link.ShortCode == code
+                    );
+                    lookupTime = stopwatch.Elapsed.TotalMilliseconds;
+                    if (link is null)
+                    {
+                        return Results.NotFound();
+                    }
+                    try
+                    {
+                        link.ClickCount++;
+                        await dbContext.SaveChangesAsync();
+                    }
+                    catch (Exception e)
+                    {
+                        logger.LogError(e, "Failed to update click count for {ShortCode}", code);
+                    }
+                    requestTime = stopwatch.Elapsed.TotalMilliseconds;
+                    results =
+                        $"Cache Miss\nSQL Lookup: {lookupTime:F2}ms\nRequest Completed In: {requestTime:F2}ms";
+                    return Results.Text(results);
+                }
+            }
+        );
+
+        // GET /{code}/clicks
+        // Retrieves the click count for a short code.
+        app.MapGet(
+            "/{code}/clicks",
+            async (string code, UrlShortenerContext dbContext, ILogger<Program> logger) =>
+            {
+                var link = await dbContext.Links.SingleOrDefaultAsync(link =>
+                    link.ShortCode == code
+                );
+
+                if (link is null)
+                {
+                    return Results.NotFound();
+                }
+
+                var count = link.ClickCount;
+
+                return Results.Text($"{count}");
+            }
+        );
 
         // POST /shorten
         // Takes a URL and returns a short code URL.
