@@ -135,6 +135,10 @@ I suggest using a browser for this one.
 
 Blank fires a redirect and returns some performance stats.
 
+> [!NOTE] Likely to take one or two requests before it warms up. You can run the
+> project in release mode with `dotnet run -c Release` but it doesn't seem
+> to affect these metrics.
+
 Example Send:
 
 ```Bash
