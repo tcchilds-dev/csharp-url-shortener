@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using StackExchange.Redis;
@@ -24,6 +25,7 @@ public static class LinkRoutes
     {
         // GET /{code}
         // Takes a shortened URL and redirects the client to the original URL.
+        // TODO: performance logs will be sent to the frontend once it has been created
         app.MapGet(
                 "/{code}",
                 async (
@@ -36,20 +38,41 @@ public static class LinkRoutes
                 ) =>
                 {
                     IDatabase cache = redis.GetDatabase();
-                    // TODO: refresh TTL?
+                    var stopwatch = Stopwatch.StartNew();
                     var redisLink = await cache.StringGetAsync(code);
                     if (redisLink != RedisValue.Null)
                     {
-                        logger.LogInformation("Cache hit for short code: {shortCode}", code);
-                        await clicksUpdateQueue.EnqueueAsync(
-                            new ClicksUpdateJob(code),
-                            stoppingToken
+                        // NOTE: may change time measurement units
+                        logger.LogInformation(
+                            "Cache hit for {ShortCode}: lookup took {ElapsedMs:F2}ms",
+                            code,
+                            stopwatch.Elapsed.TotalMilliseconds
+                        );
+                        try
+                        {
+                            await clicksUpdateQueue.EnqueueAsync(
+                                new ClicksUpdateJob(code),
+                                stoppingToken
+                            );
+                        }
+                        catch (Exception e)
+                        {
+                            logger.LogError(
+                                e,
+                                "Failed to enqueue click update job for code {ShortCode}",
+                                code
+                            );
+                        }
+                        logger.LogInformation(
+                            "{ShortCode}: cache hit - request completed in {ElapsedMs:F2}ms",
+                            code,
+                            stopwatch.Elapsed.TotalMilliseconds
                         );
                         return Results.Redirect(redisLink.ToString(), permanent: false);
                     }
                     else
                     {
-                        logger.LogInformation("Cache miss for short code: {shortCode}", code);
+                        logger.LogInformation("Cache miss for short code: {ShortCode}", code);
                         var link = await dbContext.Links.SingleOrDefaultAsync(link =>
                             link.ShortCode == code
                         );
@@ -57,7 +80,24 @@ public static class LinkRoutes
                         {
                             return Results.NotFound();
                         }
-                        await dbContext.SaveChangesAsync();
+                        try
+                        {
+                            link.ClickCount++;
+                            await dbContext.SaveChangesAsync();
+                        }
+                        catch (Exception e)
+                        {
+                            logger.LogError(
+                                e,
+                                "Failed to update click count for {ShortCode}",
+                                code
+                            );
+                        }
+                        logger.LogInformation(
+                            "{ShortCode}: cache miss - request completed in {ElapsedMs:F2}",
+                            code,
+                            stopwatch.Elapsed.TotalMilliseconds
+                        );
                         return Results.Redirect(link.OriginalUrl.ToString(), permanent: false);
                     }
                 }
@@ -87,9 +127,12 @@ public static class LinkRoutes
                         try
                         {
                             await dbContext.SaveChangesAsync();
-                            // TODO: configure TTL
-                            await cache.StringSetAsync(shortCode, URLString);
-                            return Results.Created("$/{shortCode}", link.ShortCode);
+                            await cache.StringSetAsync(
+                                shortCode,
+                                URLString,
+                                TimeSpan.FromHours(48)
+                            );
+                            return Results.Created("$/{ShortCode}", link.ShortCode);
                         }
                         catch (DbUpdateException e) when (IsUniqueConstraintViolation(e))
                         {

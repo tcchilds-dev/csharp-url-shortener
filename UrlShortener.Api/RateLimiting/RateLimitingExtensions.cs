@@ -17,7 +17,6 @@ public static class RateLimitingExtensions
                     partitionKey: "global",
                     factory: _ => new ConcurrencyLimiterOptions
                     {
-                        // NOTE: limits are tentative
                         PermitLimit = 1000,
                         QueueLimit = 0,
                     }

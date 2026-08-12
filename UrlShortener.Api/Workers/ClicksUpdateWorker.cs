@@ -35,7 +35,6 @@ public class ClicksUpdateWorker : BackgroundService
                     continue;
                 }
                 link.ClickCount++;
-                // TODO: try catch?
                 await dbContext.SaveChangesAsync(stoppingToken);
             }
             catch (Exception e)
