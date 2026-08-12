@@ -17,6 +17,16 @@ Accept: application/json
 
 ###
 
+GET http://localhost:5071/SpTJrHo/clicks
+Accept: application/json
+
+###
+
+GET http://localhost:5071/SpTJrHo/blank
+Accept: application/json
+
+###
+
 GET http://localhost:5071/notReal
 Accept: application/json
 

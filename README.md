@@ -36,14 +36,14 @@ This README was written entirely by myself.
 - **Fast Redirects**: Redirect lookups are cached in Redis, whilst click-count
   updates are processed by a background worker, so they don't block the redirect
   response.
+- **Stats**: A clicks route for viewing the click count of a short-code, and a blank
+  route to blank fire a redirect and get performance stats instead of a redirect.
 - **Rate Limiting**: A global concurrency limiter provides an upper bound on
   simultaneous requests for stability, and a per-IP fixed-window limiter
   protects link-creation from abuse.
 
 ## Planned Features
 
-- **Click Count**: An endpoint that returns the click count for your link,
-  so you can see how popular it is.
 - **Playground**: A basic frontend where you can play around with the
   functionality and view some server performance stats.
 
@@ -122,19 +122,47 @@ curl -X POST http://localhost:5071/shorten \
 Example Receive:
 
 ```Bash
-"eXpL123"
+eXpL123
 ```
 
 #### `GET <baseURL>/{code}`
 
 Redirects a short link to the corresponding full address.
 
-If you don't want to test without redirect:
+I suggest using a browser for this one.
+
+#### `GET <baseUrl>/{code}/blank`
+
+Blank fires a redirect and returns some performance stats.
+
+Example Send:
 
 ```Bash
-curl -L -o /dev/null -s -w \
-     'status: %{http_code}\ntotal: %{time_total}s\n' \
-      http://localhost:5071/<yourcode>
+curl -X GET http://localhost:5071/{your-short-code}/blank
+```
+
+Example Receive:
+
+```txt
+Cache Hit
+Redis Lookup: 0.21ms
+Request Completed In: 0.22ms
+```
+
+#### `GET <baseUrl>/{code}/clicks`
+
+Retrieves the clicks for a specified short code.
+
+Example Send:
+
+```Bash
+curl -X GET http://localhost:5071/{your-short-code}/clicks
+```
+
+Example Receive:
+
+```txt
+42
 ```
 
 ## Decisions & Rationale
