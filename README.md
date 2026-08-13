@@ -169,9 +169,47 @@ Example Receive:
 42
 ```
 
+## Load Testing Results & Optimisation
+
+For load testing I decided to use [Grafana `k6`](https://k6.io/), which was
+very easy to set up as a first time user.
+
+In my first round of load tests, I was seeing some huge performance drops as
+concurrent requests increased. From <1ms at 1k requests/second, to 2s at 10k, to
+17s at 100k. Arguably, the source was probably something I should've seen
+coming, but that's why load testing is so handy I suppose.
+
+Pretty quickly I realised that my background worker queue was filling up. I was
+sending a separate job for every time a click needed to be incremented. Each
+database query was taking around 2-3ms, so the queue backed up fast.
+
+The fix I knew was to batch the click updates. I decided to modify the
+structure that was already present, rather than redesigning completely. The
+results were encouraging. By having the worker do two jobs, one to record the
+clicks from the queue into a `ConcurrentDictionary`, and the other to
+periodically flush those recorded clicks and write to the database, I was
+able to get the load testing times down to something acceptable.
+
+### Post Batching Stats
+
+> [!NOTE] I believe the fact that I was hosting the server and running the load
+> testing program on the same resources, contributed to the numbers, especially
+> on the 100k test. The amount of Virtual Users I ran on the testing set up
+> seemed to change the performance results significantly. But the reduction is
+> clear regardless.
+
+@ ~10k Requests / Second:
+![~10k/second Results](screenshots/10k.png)
+
+> [!NOTE] So sorry to anyone that will get frustrated by my cursor being in the
+> above picture. It's annoying me as well.
+
+@ ~100k Requests / Second:
+![~100k/second Results](screenshots/100k.png)
+
 ## Decisions & Rationale
 
-_**Why short codes of length 7?**_
+### _**Why short codes of length 7?**_
 
 It provides a good balance between being compact and minimising chances of
 collisions.
@@ -188,7 +226,7 @@ retries on top of that and we're chilling.
 
 ---
 
-**How do you deal with short-code collisions?**
+### **How do you deal with short-code collisions?**
 
 I use randomly generated codes with retries. Maximum attempts are set to 3.
 
@@ -202,7 +240,7 @@ Random + retries is the simplest, and sufficient for our uses.
 
 ---
 
-**What is the rationale behind the rate limiter settings?**
+### **What is the rationale behind the rate limiter settings?**
 
 I've got a global concurrency limiter set at 1000 with zero queue.
 
@@ -217,3 +255,5 @@ Which may be a little generous. Nobody needs that many links surely. I might
 dial that down.
 
 ---
+
+Thanks for your time, have a good one :)

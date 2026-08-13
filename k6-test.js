@@ -5,10 +5,10 @@ export const options = {
     contacts: {
       executor: "constant-arrival-rate",
       duration: "30s",
-      rate: 100000,
+      rate: 10000,
       timeUnit: "1s",
-      preAllocatedVUs: 100,
-      maxVUs: 300,
+      preAllocatedVUs: 10,
+      maxVUs: 20,
     },
   },
 };
