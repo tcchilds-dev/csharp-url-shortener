@@ -1,8 +1,16 @@
 import http from "k6/http";
 
 export const options = {
-  iterations: 10000,
-  vus: 10000,
+  scenarios: {
+    contacts: {
+      executor: "constant-arrival-rate",
+      duration: "30s",
+      rate: 100000,
+      timeUnit: "1s",
+      preAllocatedVUs: 100,
+      maxVUs: 300,
+    },
+  },
 };
 
 export default function () {
