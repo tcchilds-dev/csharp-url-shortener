@@ -1,7 +1,5 @@
 # Tom's Simple URL Shortener in C\#
 
-> [!WARNING] this project is a WIP
-
 This project is a simple URL Shortener API written in C#.
 
 It was made as a simple learning exercise in understanding the basics of ASP.NET
@@ -16,7 +14,7 @@ The scope is deliberately more focused compared to the original. I wanted it to
 be a little more streamlined; a little less scattered. It's still in progress,
 and I may 'zhuzh' it up down the line.
 
-This README was written entirely by myself.
+This project and README was written entirely by myself.
 
 ## Tech Stack
 
@@ -41,11 +39,6 @@ This README was written entirely by myself.
 - **Rate Limiting**: A global concurrency limiter provides an upper bound on
   simultaneous requests for stability, and a per-IP fixed-window limiter
   protects link-creation from abuse.
-
-## Planned Features
-
-- **Playground**: A basic frontend where you can play around with the
-  functionality and view some server performance stats.
 
 ## Installation
 
@@ -201,9 +194,6 @@ able to get the load testing times down to something acceptable.
 @ ~10k Requests / Second:
 ![~10k/second Results](screenshots/10k.png)
 
-> [!NOTE] So sorry to anyone that will get frustrated by my cursor being in the
-> above picture. It's annoying me as well.
-
 @ ~100k Requests / Second:
 ![~100k/second Results](screenshots/100k.png)
 
@@ -255,5 +245,3 @@ Which may be a little generous. Nobody needs that many links surely. I might
 dial that down.
 
 ---
-
-Thanks for your time, have a good one :)
