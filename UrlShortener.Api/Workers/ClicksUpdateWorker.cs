@@ -23,7 +23,7 @@ public class ClicksUpdateWorker : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var accumulateTask = AccumulateClicksAsync(stoppingToken);
+        var accumulateTask = AccumulateClicksAsync();
         var flushTask = FlushPeriodicallyAsync(stoppingToken);
 
         try
@@ -31,11 +31,24 @@ public class ClicksUpdateWorker : BackgroundService
             await Task.WhenAll(accumulateTask, flushTask);
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { }
+        finally
+        {
+            using var finalFlushTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+
+            await FlushClicksAsync(finalFlushTimeout.Token);
+        }
     }
 
-    private async Task AccumulateClicksAsync(CancellationToken stoppingToken)
+    public override Task StopAsync(CancellationToken cancellationToken)
     {
-        await foreach (var job in _queue.ReadAllAsync(stoppingToken))
+        _queue.Complete();
+
+        return base.StopAsync(cancellationToken);
+    }
+
+    private async Task AccumulateClicksAsync()
+    {
+        await foreach (var job in _queue.ReadAllAsync())
         {
             _clicks.AddOrUpdate(job.ShortCode, 1, (_, clickCount) => clickCount + 1);
         }
@@ -116,6 +129,7 @@ public class ClicksUpdateWorker : BackgroundService
                     (_, existingCount) => existingCount + clickCount
                 );
             }
+
             _logger.LogError(e, "Failed to flush click counts");
         }
     }

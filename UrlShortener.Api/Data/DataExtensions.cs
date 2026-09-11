@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using StackExchange.Redis;
+using UrlShortener.Api.Caching;
 
 namespace UrlShortener.Api.Data;
 
@@ -9,6 +10,7 @@ public static class DataExtensions
     {
         using var scope = app.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<UrlShortenerContext>();
+
         dbContext.Database.Migrate();
     }
 
@@ -21,8 +23,17 @@ public static class DataExtensions
 
     public static void AddRedisDb(this WebApplicationBuilder builder)
     {
-        builder.Services.AddSingleton<IConnectionMultiplexer>(
-            ConnectionMultiplexer.Connect(builder.Configuration.GetConnectionString("Redis")!)
-        );
+        builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
+        {
+            var options = ConfigurationOptions.Parse(
+                builder.Configuration.GetConnectionString("Redis")!
+            );
+
+            options.AbortOnConnectFail = false;
+
+            return ConnectionMultiplexer.Connect(options);
+        });
+
+        builder.Services.AddSingleton<LinkCache>();
     }
 }

@@ -2,24 +2,35 @@ using System.Threading.Channels;
 
 public record ClicksUpdateJob(string ShortCode);
 
-public class ClicksUpdateQueue
+public class ClicksUpdateQueue(ILogger<ClicksUpdateQueue> logger)
 {
-    private readonly Channel<ClicksUpdateJob> _channel;
+    private readonly Channel<ClicksUpdateJob> _channel = Channel.CreateBounded<ClicksUpdateJob>(
+        new BoundedChannelOptions(1000)
+        {
+            FullMode = BoundedChannelFullMode.Wait,
+            SingleReader = true,
+        }
+    );
 
-    public ClicksUpdateQueue()
+    public bool TryEnqueue(ClicksUpdateJob job)
     {
-        _channel = Channel.CreateBounded<ClicksUpdateJob>(
-            new BoundedChannelOptions(1000) { FullMode = BoundedChannelFullMode.Wait }
+        if (_channel.Writer.TryWrite(job))
+        {
+            return true;
+        }
+
+        logger.LogWarning(
+            "Dropped click for {ShortCode}: click queue is full or stopping",
+            job.ShortCode
         );
+
+        return false;
     }
 
-    public ValueTask EnqueueAsync(ClicksUpdateJob job, CancellationToken stoppingToken = default)
-    {
-        return _channel.Writer.WriteAsync(job, stoppingToken);
-    }
+    public void Complete() => _channel.Writer.TryComplete();
 
-    public IAsyncEnumerable<ClicksUpdateJob> ReadAllAsync(CancellationToken stoppingToken)
+    public IAsyncEnumerable<ClicksUpdateJob> ReadAllAsync()
     {
-        return _channel.Reader.ReadAllAsync(stoppingToken);
+        return _channel.Reader.ReadAllAsync();
     }
 }

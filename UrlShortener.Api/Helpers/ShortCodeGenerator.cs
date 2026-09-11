@@ -2,13 +2,14 @@ using System.Security.Cryptography;
 
 namespace UrlShortener.Api.Utilities;
 
-public static class ShortCodeGenerator
+public interface IShortCodeGenerator
 {
-    private const string _choices =
-        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    string Generate();
+}
 
-    public static string Generate(int length = 7)
-    {
-        return RandomNumberGenerator.GetString(_choices, length);
-    }
+public class ShortCodeGenerator : IShortCodeGenerator
+{
+    private const string Choices = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+
+    public string Generate() => RandomNumberGenerator.GetString(Choices, 7);
 }

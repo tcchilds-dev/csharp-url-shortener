@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
-using StackExchange.Redis;
+using UrlShortener.Api.Caching;
 using UrlShortener.Api.Data;
 using UrlShortener.Api.Models;
 using UrlShortener.Api.RateLimiting;
@@ -9,222 +9,186 @@ using UrlShortener.Api.Utilities;
 
 namespace UrlShortener.Api.Routes;
 
-public record ShortenUrlRequest(Uri Url);
+public record ShortenUrlRequest(string? Url);
 
 public static class LinkRoutes
 {
-    const int maxAttempts = 3;
-
-    static bool IsUniqueConstraintViolation(DbUpdateException exception)
-    {
-        return exception.InnerException is SqlException sqlException
-            && sqlException.Number is 2601 or 2627;
-    }
+    private const int MaxAttempts = 3;
 
     public static void MapLinkRoutes(this WebApplication app)
     {
-        // GET /{code}
-        // Takes a shortened URL and redirects the client to the original URL.
         app.MapGet(
             "/{code}",
             async (
                 string code,
                 UrlShortenerContext dbContext,
-                IConnectionMultiplexer redis,
-                ILogger<Program> logger,
-                ClicksUpdateQueue clicksUpdateQueue,
-                CancellationToken stoppingToken
+                LinkCache cache,
+                ClicksUpdateQueue queue,
+                CancellationToken cancellationToken
             ) =>
             {
-                IDatabase cache = redis.GetDatabase();
-                var stopwatch = Stopwatch.StartNew();
-                var redisLink = await cache.StringGetAsync(code);
-                if (redisLink != RedisValue.Null)
-                {
-                    logger.LogInformation(
-                        "Cache hit for {ShortCode}: lookup took {ElapsedMs:F2}ms",
-                        code,
-                        stopwatch.Elapsed.TotalMilliseconds
-                    );
-                    try
-                    {
-                        await clicksUpdateQueue.EnqueueAsync(
-                            new ClicksUpdateJob(code),
-                            stoppingToken
-                        );
-                    }
-                    catch (Exception e)
-                    {
-                        logger.LogError(
-                            e,
-                            "Failed to enqueue click update job for code {ShortCode}",
-                            code
-                        );
-                    }
-                    logger.LogInformation(
-                        "{ShortCode}: cache hit - request completed in {ElapsedMs:F2}ms",
-                        code,
-                        stopwatch.Elapsed.TotalMilliseconds
-                    );
-                    return Results.Redirect(redisLink.ToString(), permanent: false);
-                }
-                else
-                {
-                    logger.LogInformation("Cache miss for short code: {ShortCode}", code);
-                    var link = await dbContext.Links.SingleOrDefaultAsync(link =>
-                        link.ShortCode == code
-                    );
-                    if (link is null)
-                    {
-                        return Results.NotFound();
-                    }
-                    try
-                    {
-                        link.ClickCount++;
-                        await dbContext.SaveChangesAsync();
-                    }
-                    catch (Exception e)
-                    {
-                        logger.LogError(e, "Failed to update click count for {ShortCode}", code);
-                    }
-                    logger.LogInformation(
-                        "{ShortCode}: cache miss - request completed in {ElapsedMs:F2}",
-                        code,
-                        stopwatch.Elapsed.TotalMilliseconds
-                    );
-                    return Results.Redirect(link.OriginalUrl.ToString(), permanent: false);
-                }
+                var lookup = await LookupAsync(code, dbContext, cache, queue, cancellationToken);
+
+                return lookup is null
+                    ? Results.NotFound()
+                    : Results.Redirect(lookup.Url, permanent: false);
             }
         );
 
-        // GET /{code}/blank
-        // Like redirect but gives you performance stats instead of redirecting.
         app.MapGet(
             "/{code}/blank",
             async (
                 string code,
                 UrlShortenerContext dbContext,
-                IConnectionMultiplexer redis,
-                ILogger<Program> logger,
-                ClicksUpdateQueue clicksUpdateQueue,
-                CancellationToken stoppingToken
+                LinkCache cache,
+                ClicksUpdateQueue queue,
+                CancellationToken cancellationToken
             ) =>
             {
-                IDatabase cache = redis.GetDatabase();
-                var stopwatch = Stopwatch.StartNew();
-                var redisLink = await cache.StringGetAsync(code);
-                double lookupTime;
-                double requestTime;
-                string results;
-                if (redisLink != RedisValue.Null)
-                {
-                    lookupTime = stopwatch.Elapsed.TotalMilliseconds;
-                    try
-                    {
-                        await clicksUpdateQueue.EnqueueAsync(
-                            new ClicksUpdateJob(code),
-                            stoppingToken
-                        );
-                    }
-                    catch (Exception e)
-                    {
-                        logger.LogError(
-                            e,
-                            "Failed to enqueue click update job for code {ShortCode}",
-                            code
-                        );
-                    }
-                    requestTime = stopwatch.Elapsed.TotalMilliseconds;
-                    results =
-                        $"Cache Hit\nRedis Lookup: {lookupTime:F2}ms\nRequest Completed In: {requestTime:F2}ms";
-                    return Results.Text(results);
-                }
-                else
-                {
-                    var link = await dbContext.Links.SingleOrDefaultAsync(link =>
-                        link.ShortCode == code
-                    );
-                    lookupTime = stopwatch.Elapsed.TotalMilliseconds;
-                    if (link is null)
-                    {
-                        return Results.NotFound();
-                    }
-                    try
-                    {
-                        link.ClickCount++;
-                        await dbContext.SaveChangesAsync();
-                    }
-                    catch (Exception e)
-                    {
-                        logger.LogError(e, "Failed to update click count for {ShortCode}", code);
-                    }
-                    requestTime = stopwatch.Elapsed.TotalMilliseconds;
-                    results =
-                        $"Cache Miss\nSQL Lookup: {lookupTime:F2}ms\nRequest Completed In: {requestTime:F2}ms";
-                    return Results.Text(results);
-                }
-            }
-        );
+                var lookup = await LookupAsync(code, dbContext, cache, queue, cancellationToken);
 
-        // GET /{code}/clicks
-        // Retrieves the click count for a short code.
-        app.MapGet(
-            "/{code}/clicks",
-            async (string code, UrlShortenerContext dbContext, ILogger<Program> logger) =>
-            {
-                var link = await dbContext.Links.SingleOrDefaultAsync(link =>
-                    link.ShortCode == code
-                );
-
-                if (link is null)
+                if (lookup is null)
                 {
                     return Results.NotFound();
                 }
 
-                var count = link.ClickCount;
+                var source = lookup.CacheHit ? "Cache Hit" : "Cache Miss";
 
-                return Results.Text($"{count}");
+                return Results.Text(
+                    $"{source}\nLookup: {lookup.LookupMs:F2}ms\nHandler Completed In: {lookup.HandlerMs:F2}ms"
+                );
             }
         );
 
-        // POST /shorten
-        // Takes a URL and returns a short code URL.
+        app.MapGet(
+            "/{code}/clicks",
+            async (
+                string code,
+                UrlShortenerContext dbContext,
+                CancellationToken cancellationToken
+            ) =>
+            {
+                var count = await dbContext
+                    .Links.Where(link => link.ShortCode == code)
+                    .Select(link => (int?)link.ClickCount)
+                    .SingleOrDefaultAsync(cancellationToken);
+
+                return count is null ? Results.NotFound() : Results.Text($"{count}");
+            }
+        );
+
         app.MapPost(
                 "/shorten",
                 async (
                     ShortenUrlRequest request,
                     UrlShortenerContext dbContext,
-                    IConnectionMultiplexer redis,
-                    ILogger<Program> logger
+                    LinkCache cache,
+                    IShortCodeGenerator generator,
+                    CancellationToken cancellationToken
                 ) =>
                 {
-                    if (!request.Url.IsAbsoluteUri)
-                        return Results.BadRequest("An absolute (full) URL is required.");
-                    IDatabase cache = redis.GetDatabase();
-                    var URLString = $"{request.Url}";
-                    for (var attempt = 1; attempt <= maxAttempts; attempt++)
+                    if (
+                        string.IsNullOrWhiteSpace(request.Url)
+                        || request.Url.Length > Link.MaxUrlLength
+                    )
                     {
-                        var shortCode = ShortCodeGenerator.Generate();
-                        var link = new Link { OriginalUrl = URLString, ShortCode = shortCode };
+                        return Results.BadRequest(
+                            $"A URL of 1 to {Link.MaxUrlLength} characters is required."
+                        );
+                    }
+
+                    if (
+                        !Uri.TryCreate(request.Url, UriKind.Absolute, out var url)
+                        || (url.Scheme != Uri.UriSchemeHttp && url.Scheme != Uri.UriSchemeHttps)
+                        || string.IsNullOrWhiteSpace(url.Host)
+                    )
+                    {
+                        return Results.BadRequest("An absolute HTTP or HTTPS URL is required.");
+                    }
+
+                    var originalUrl = url.AbsoluteUri;
+
+                    if (originalUrl.Length > Link.MaxUrlLength)
+                    {
+                        return Results.BadRequest(
+                            $"The normalized URL must not exceed {Link.MaxUrlLength} characters."
+                        );
+                    }
+
+                    for (var attempt = 0; attempt < MaxAttempts; attempt++)
+                    {
+                        var link = new Link
+                        {
+                            OriginalUrl = originalUrl,
+                            ShortCode = generator.Generate(),
+                        };
+
                         dbContext.Links.Add(link);
+
                         try
                         {
-                            await dbContext.SaveChangesAsync();
-                            await cache.StringSetAsync(
-                                shortCode,
-                                URLString,
-                                TimeSpan.FromHours(48)
-                            );
-                            return Results.Created("$/{ShortCode}", link.ShortCode);
+                            await dbContext.SaveChangesAsync(cancellationToken);
                         }
-                        catch (DbUpdateException e) when (IsUniqueConstraintViolation(e))
+                        catch (DbUpdateException exception)
+                            when (exception.InnerException is SqlException { Number: 2601 or 2627 })
                         {
                             dbContext.Entry(link).State = EntityState.Detached;
+
+                            continue;
                         }
+
+                        await cache.SetAsync(link.ShortCode, link.OriginalUrl);
+
+                        return Results.Created($"/{link.ShortCode}", link.ShortCode);
                     }
+
                     return Results.InternalServerError("Could not generate a unique short code.");
                 }
             )
             .RequireRateLimiting(RateLimitingExtensions.PostLimiter);
     }
+
+    private static async Task<LinkLookup?> LookupAsync(
+        string code,
+        UrlShortenerContext dbContext,
+        LinkCache cache,
+        ClicksUpdateQueue queue,
+        CancellationToken cancellationToken
+    )
+    {
+        if (code.Length != 7 || code.Any(character => !char.IsAsciiLetterOrDigit(character)))
+        {
+            return null;
+        }
+
+        var stopwatch = Stopwatch.StartNew();
+        var originalUrl = await cache.GetAsync(code);
+        var cacheHit = originalUrl is not null;
+
+        if (!cacheHit)
+        {
+            originalUrl = await dbContext
+                .Links.Where(link => link.ShortCode == code)
+                .Select(link => link.OriginalUrl)
+                .SingleOrDefaultAsync(cancellationToken);
+        }
+
+        var lookupMs = stopwatch.Elapsed.TotalMilliseconds;
+
+        if (originalUrl is null)
+        {
+            return null;
+        }
+
+        if (!cacheHit)
+        {
+            await cache.SetAsync(code, originalUrl);
+        }
+
+        queue.TryEnqueue(new ClicksUpdateJob(code));
+
+        return new LinkLookup(originalUrl, cacheHit, lookupMs, stopwatch.Elapsed.TotalMilliseconds);
+    }
+
+    private sealed record LinkLookup(string Url, bool CacheHit, double LookupMs, double HandlerMs);
 }

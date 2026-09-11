@@ -1,72 +1,29 @@
-# Tom's Simple URL Shortener in C\#
+# Tom's URL Shortener in C
 
-This project is a simple URL Shortener API written in C#.
+A small ASP.NET Core API that takes long URLs, creates short links, redirects
+users, and records click counts. This is a C# rewrite of my first portfolio
+project, originally built with TypeScript, Express, and PostgreSQL.
 
-It was made as a simple learning exercise in understanding the basics of ASP.NET
-Core backend development, it mirrors and replaces my first portfolio project,
-which was a URL-shortener written in TypeScript using Express/Node.
+The project focuses on core web API functionality, database use, caching,
+and background services.
 
-My focus for this was to have some simple functionality, around and through which
-I could experiment with a selection of ASP.NET Core packages and capabilities,
-whilst demonstrating some basic syntactical proficiency.
+It uses .NET 10, Entity Framework Core, SQL Server and Redis.
 
-The scope is deliberately more focused compared to the original. I wanted it to
-be a little more streamlined; a little less scattered. It's still in progress,
-and I may 'zhuzh' it up down the line.
+## Run Locally
 
-This project and README was written entirely by myself.
+Prerequisites:
 
-## Tech Stack
+- .NET 10 SDK
+- Docker with Docker Compose
 
-- C# / .NET 10
-- ASP.NET Core
-- Entity Framework Core
-- SQL Server
-- Redis
-- Docker Compose
-- ASP.NET Core Rate Limiting
-- ASP.NET Core Logging
-- Background Worker & Job Queue
-
-## Current Features
-
-- **Link Shortening**: Produces clean and compact short links from long URLs.
-- **Fast Redirects**: Redirect lookups are cached in Redis, whilst click-count
-  updates are processed by a background worker, so they don't block the redirect
-  response.
-- **Stats**: A clicks route for viewing the click count of a short-code, and a blank
-  route to blank fire a redirect and get performance stats instead of a redirect.
-- **Rate Limiting**: A global concurrency limiter provides an upper bound on
-  simultaneous requests for stability, and a per-IP fixed-window limiter
-  protects link-creation from abuse.
-
-## Installation
-
-### Prerequisites
-
-Before running the project, you'll need the following installed:
-
-- [.NET 10 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/10.0)
-- [Docker & Docker Compose](https://www.docker.com/products/docker-desktop/)
-
-Verify the installations:
-
-```bash
-dotnet --version
-docker --version
-docker compose version
-```
-
-### Running The Application
-
-Clone the repository:
+Clone the repo:
 
 ```bash
 git clone https://github.com/tcchilds-dev/csharp-url-shortener
-cd csharp-url-shortener/UrlShortener.Api/
+cd csharp-url-shortener
 ```
 
-Start Redis and SQL Server:
+Start up docker databases:
 
 ```bash
 docker compose up -d
@@ -75,173 +32,107 @@ docker compose up -d
 Run the app:
 
 ```bash
-dotnet run
+dotnet run --project UrlShortener.Api --launch-profile http
 ```
 
-### Stopping The Application
+Visit the local address: `http://localhost:5071`
 
-You can stop the app from the terminal with `Ctrl+C`.
+To stop the app:
 
-To stop the docker services:
+- `Ctrl+C` will stop the app.
+- Then stop the services with `docker compose down`.
+- `docker compose down -v` also deletes the local database volumes.
 
-```bash
-docker compose down
+## API
+
+### Create A Link
+
+```txt
+POST /shorten
+
+Content-Type: application/json
+Body: {"url":"https://example.com"}
+
+Returns:
+
+    Success:
+        201 Created + JSON string containing seven-character short code
+
+    Error:
+        400 Bad Request
+        429 Too Many Requests
 ```
 
-To remove the docker volumes and their data:
+- Only absolute HTTP and HTTPS URLs are accepted.
+- There is a character limit of 4096 characters for the URLs.
+- Rate limiting:
+  - Creation is limited to 10 requests per minute per IP.
+  - There is a global concurrency limit of 1000 simultaneous requests.
 
-```bash
-docker compose down -v
+### Redirect
+
+```txt
+GET /{code}
+
+Returns:
+
+    Success:
+        302 Found
+
+    Error:
+        404 Not Found
 ```
 
-## Usage
+- 302 is necessary for analytics, 301s get cached by the browser.
+- Unknown codes return 404.
+- Codes are case-sensitive.
 
-### Endpoints
+### Playground Diagnostics
 
-> [!NOTE] For now, the base URL should be `localhost:5071`
-
-#### `POST <baseURL>/shorten`
-
-Send a full URL and receive a shortened link.
-
-Example Send:
-
-```Bash
-curl -X POST http://localhost:5071/shorten \
-     -H "Content-Type: application/json" \
-     -d '{"url": "https://www.example.com"}'
-```
-
-Example Receive:
-
-```Bash
-eXpL123
-```
-
-#### `GET <baseURL>/{code}`
-
-Redirects a short link to the corresponding full address.
-
-I suggest using a browser for this one.
-
-#### `GET <baseUrl>/{code}/blank`
-
-Blank fires a redirect and returns some performance stats.
-
-> [!NOTE] Likely to take one or two requests before it warms up. You can run the
-> project in release mode with `dotnet run -c Release` but it doesn't seem
-> to affect these metrics.
-
-Example Send:
-
-```Bash
-curl -X GET http://localhost:5071/{your-short-code}/blank
-```
-
-Example Receive:
+`GET /{code}/blank` runs the same lookup, cache operations, and click recording
+as the redirect, but returns some stats instead of redirecting to the actual link.
 
 ```txt
 Cache Hit
-Redis Lookup: 0.21ms
-Request Completed In: 0.22ms
+Lookup: 0.21ms
+Handler Completed In: 0.22ms
 ```
 
-#### `GET <baseUrl>/{code}/clicks`
+- The times shown only record operations in the handler. Network latency is not
+  included.
+- The lookup time includes a Redis lookup, and in the case of a miss, a
+  SQL lookup.
+- These requests do increment the click counter for the link.
 
-Retrieves the clicks for a specified short code.
-
-Example Send:
-
-```Bash
-curl -X GET http://localhost:5071/{your-short-code}/clicks
-```
-
-Example Receive:
+### Click Counts
 
 ```txt
-42
+GET /{code}/clicks
+
+Returns:
+
+    Success:
+        200 OK + click count
+
+    Error:
+        404 Not Found
 ```
 
-## Load Testing Results & Optimisation
+- Unknown codes return 404.
+- Click counts update every second when the background service flushes.
 
-For load testing I decided to use [Grafana `k6`](https://k6.io/), which was
-very easy to set up as a first time user.
+## Decisions
 
-In my first round of load tests, I was seeing some huge performance drops as
-concurrent requests increased. From <1ms at 1k requests/second, to 2s at 10k, to
-17s at 100k. Arguably, the source was probably something I should've seen
-coming, but that's why load testing is so handy I suppose.
+- **Short codes**: use a cryptographic random generator with 62 possible characters.
+  A case-sensitive unique SQL index enforces uniqueness. Retries up to three times
+  on collision.
 
-Pretty quickly I realised that my background worker queue was filling up. I was
-sending a separate job for every time a click needed to be incremented. Each
-database query was taking around 2-3ms, so the queue backed up fast.
+- **Caching**: Redis caches links for 48 hours and are reentered on cache misses.
+  Failed cache reads fall back to SQL.
 
-The fix I knew was to batch the click updates. I decided to modify the
-structure that was already present, rather than redesigning completely. The
-results were encouraging. By having the worker do two jobs, one to record the
-clicks from the queue into a `ConcurrentDictionary`, and the other to
-periodically flush those recorded clicks and write to the database, I was
-able to get the load testing times down to something acceptable.
+- **Background service**: click increments are handled by a background service so
+  cache hit redirects remain fast. Batched click counts are written to SQL once
+  per second.
 
-### Post Batching Stats
-
-> [!NOTE] I believe the fact that I was hosting the server and running the load
-> testing program on the same resources, contributed to the numbers, especially
-> on the 100k test. The amount of Virtual Users I ran on the testing set up
-> seemed to change the performance results significantly. But the reduction is
-> clear regardless.
-
-@ ~10k Requests / Second:
-![~10k/second Results](screenshots/10k.png)
-
-@ ~100k Requests / Second:
-![~100k/second Results](screenshots/100k.png)
-
-## Decisions & Rationale
-
-### _**Why short codes of length 7?**_
-
-It provides a good balance between being compact and minimising chances of
-collisions.
-
-I have 62 characters to generate with.
-
-The codes themselves have a unique constraint of course.
-
-Total possible codes: $62^7\approx3.5\times10^{12}$
-
-Birthday-collision scale is roughly $\sqrt{62^7}\approx1.88$ million actual
-generated codes before collision likelihood stops being negligible. Add in
-retries on top of that and we're chilling.
-
----
-
-### **How do you deal with short-code collisions?**
-
-I use randomly generated codes with retries. Maximum attempts are set to 3.
-
-Out of the three primary methods I know of:
-
-- Random + retries
-- Sequential + base62 encoding
-- Pre-generated key pool
-
-Random + retries is the simplest, and sufficient for our uses.
-
----
-
-### **What is the rationale behind the rate limiter settings?**
-
-I've got a global concurrency limiter set at 1000 with zero queue.
-
-This caps the number of requests being processed simultaneously. At a
-conservative average of 10ms per request, 1000 concurrent requests
-would map to a theoretical throughput of roughly 100,000 requests/sec.
-This limit is intended as a stability ceiling and may change after load
-testing.
-
-I've also got a fixed window per-IP limit on creating links of 10 per minute.
-Which may be a little generous. Nobody needs that many links surely. I might
-dial that down.
-
----
+- **Analytics**: click counts are best effort, they can be lost in situations like
+  crashes or forced shutdowns.
