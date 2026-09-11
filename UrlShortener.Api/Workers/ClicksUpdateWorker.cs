@@ -31,19 +31,27 @@ public class ClicksUpdateWorker : BackgroundService
             await Task.WhenAll(accumulateTask, flushTask);
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { }
-        finally
-        {
-            using var finalFlushTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-
-            await FlushClicksAsync(finalFlushTimeout.Token);
-        }
     }
 
-    public override Task StopAsync(CancellationToken cancellationToken)
+    public override async Task StopAsync(CancellationToken cancellationToken)
     {
         _queue.Complete();
 
-        return base.StopAsync(cancellationToken);
+        await base.StopAsync(cancellationToken);
+
+        if (ExecuteTask is { IsCompleted: false } || cancellationToken.IsCancellationRequested)
+        {
+            return;
+        }
+
+        await AccumulateClicksAsync();
+
+        using var finalFlushTimeout = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken
+        );
+        finalFlushTimeout.CancelAfter(TimeSpan.FromSeconds(10));
+
+        await FlushClicksAsync(finalFlushTimeout.Token);
     }
 
     private async Task AccumulateClicksAsync()
