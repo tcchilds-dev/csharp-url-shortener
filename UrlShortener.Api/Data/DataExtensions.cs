@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using Polly;
+using Polly.CircuitBreaker;
 using StackExchange.Redis;
 using UrlShortener.Api.Caching;
 
@@ -30,9 +32,30 @@ public static class DataExtensions
             );
 
             options.AbortOnConnectFail = false;
+            options.AsyncTimeout = 250;
+            options.BacklogPolicy = BacklogPolicy.FailFast;
 
             return ConnectionMultiplexer.Connect(options);
         });
+
+        builder.Services.AddResiliencePipeline(
+            "redis-pipeline",
+            builder =>
+            {
+                var options = new CircuitBreakerStrategyOptions
+                {
+                    FailureRatio = 0.1,
+                    MinimumThroughput = 2,
+                    SamplingDuration = new TimeSpan(0, 0, 10),
+                    BreakDuration = new TimeSpan(0, 0, 5),
+                    ShouldHandle = new PredicateBuilder()
+                        .Handle<RedisException>()
+                        .Handle<RedisTimeoutException>(),
+                };
+
+                builder.AddCircuitBreaker(options);
+            }
+        );
 
         builder.Services.AddSingleton<LinkCache>();
     }

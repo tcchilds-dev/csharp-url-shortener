@@ -1,4 +1,4 @@
-# Tom's URL Shortener in C
+# Tom's URL Shortener API in `C#`
 
 A small ASP.NET Core API that takes long URLs, creates short links, redirects
 users, and records click counts. This is a C# rewrite of my first portfolio
@@ -35,7 +35,7 @@ Run the app:
 dotnet run --project UrlShortener.Api --launch-profile http
 ```
 
-Visit the local address: `http://localhost:5071`
+> [!NOTE] There is no homepage for this API, it's meant to be used through the terminal.
 
 To stop the app:
 
@@ -87,7 +87,7 @@ Returns:
 - Unknown codes return 404.
 - Codes are case-sensitive.
 
-### Playground Diagnostics
+### Lookup Diagnostics
 
 `GET /{code}/blank` runs the same lookup, cache operations, and click recording
 as the redirect, but returns some stats instead of redirecting to the actual link.
@@ -136,3 +136,36 @@ Returns:
 
 - **Analytics**: click counts are best effort, they can be lost in situations like
   crashes or forced shutdowns.
+
+## Load Testing
+
+Prerequisite: Install [Grafana k6](https://k6.io/open-source/).
+
+Run the app:
+
+```bash
+dotnet run --project UrlShortener.Api --configuration Release --launch-profile http
+```
+
+For the default test:
+
+```bash
+k6 run k6-test.js
+```
+
+- Defaults are:
+  - 100 iterations/second for 30 seconds
+  - 20 preallocated virtual users
+  - maximum of 100 virtual users
+- This is a single-popular-link workload, it does not measure performance across
+  many distinct links.
+- Thresholds require all response checks to pass, fewer than 1% failed redirect
+  requests, p95 below 100ms, and zero dropped iterations.
+- You can configure `BASE_URL`, `RATE`, `DURATION`, `PREALLOCATED_VUS`, `MAX_VUS`,
+  and `P95_MS` through k6 environment variables.
+
+Example custom test:
+
+```bash
+k6 run -e RATE=1000 -e PREALLOCATED_VUS=50 -e MAX_VUS=200 k6-test.js
+```
