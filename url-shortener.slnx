@@ -2,6 +2,7 @@
   <Folder Name="/Solution Items/">
     <File Path="compose.yaml" />
   </Folder>
+  <Project Path="UrlShortener.Api.Tests/UrlShortener.Api.Tests.csproj" />
   <Project Path="UrlShortener.Api/UrlShortener.Api.csproj" />
   <Project Path="tools/LoadTestData/LoadTestData.csproj" />
 </Solution>

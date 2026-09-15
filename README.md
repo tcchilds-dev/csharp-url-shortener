@@ -141,6 +141,35 @@ Returns:
 - **Analytics**: click counts are best effort, they can be lost in situations like
   crashes or forced shutdowns.
 
+## Integration Tests
+
+Tests use `xUnit` and test SQL and Redis databases in Docker. The test host
+follows ASP.NET Core's `WebApplicationFactory` approach.
+
+To run the tests:
+
+```bash
+docker compose -p url-shortener-tests -f compose.test.yaml up -d --wait
+dotnet test
+```
+
+To stop the docker containers:
+
+```bash
+docker compose -p url-shortener-tests -f compose.test.yaml down -v
+```
+
+- The first run downloads database images.
+- A unique database is created for each API test and deleted afterward.
+- Coverage includes:
+  - link creation and redirects
+  - input validation and length limits
+  - case-sensitive SQL uniqueness and cache lookups
+  - collision retries
+  - rate limiting
+  - Redis failure fallback
+  - graceful worker shutdown
+
 ## Load Testing
 
 > [!NOTE] Please note that whilst the original basic K6 load test was written by

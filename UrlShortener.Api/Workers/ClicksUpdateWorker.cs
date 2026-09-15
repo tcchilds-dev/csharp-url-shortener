@@ -7,8 +7,6 @@ public class ClicksUpdateWorker : BackgroundService
     private readonly ILogger<ClicksUpdateWorker> _logger;
     private readonly IServiceScopeFactory _scopedFactory;
 
-    // Shutdown can be requested more than once. Serializing the entire snapshot,
-    // write, and acknowledgement stops duplication.
     private readonly SemaphoreSlim _flushGate = new(1, 1);
 
     public ClicksUpdateWorker(
@@ -38,9 +36,7 @@ public class ClicksUpdateWorker : BackgroundService
 
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
-        // Stop new increments first, then wait for any normal flush to finish
-        // before starting the final flush. Snapshots must never overlap.
-        _queue.Complete();
+        _queue.StopAcceptingClicks();
 
         await base.StopAsync(cancellationToken);
 
@@ -131,9 +127,7 @@ public class ClicksUpdateWorker : BackgroundService
             return false;
         }
 
-        // The database work succeeded. Remove only persisted counts. Increments received while SQL
-        // was busy stay available for the next tick.
-        _queue.Acknowledge(batch);
+        _queue.RemovePersistedClicks(batch);
         _logger.LogInformation("Flushed {UrlCount} URL counters", batch.Count);
         return true;
     }

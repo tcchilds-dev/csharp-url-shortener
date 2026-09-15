@@ -45,8 +45,6 @@ public class ClicksUpdateQueue
         return false;
     }
 
-    // A snapshot lets SQL run without holding the lock. Original entries are preserved until
-    // success.
     public Dictionary<string, long> Snapshot()
     {
         lock (_gate)
@@ -55,8 +53,7 @@ public class ClicksUpdateQueue
         }
     }
 
-    // Subtracting (rather than clearing) preserves clicks received during the write.
-    public void Acknowledge(IReadOnlyDictionary<string, long> snapshot)
+    public void RemovePersistedClicks(IReadOnlyDictionary<string, long> snapshot)
     {
         lock (_gate)
         {
@@ -75,7 +72,7 @@ public class ClicksUpdateQueue
         }
     }
 
-    public void Complete()
+    public void StopAcceptingClicks()
     {
         lock (_gate)
         {
