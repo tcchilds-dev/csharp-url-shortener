@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
 using UrlShortener.Api.Data;
 
@@ -8,7 +7,9 @@ public class ClicksUpdateWorker : BackgroundService
     private readonly ILogger<ClicksUpdateWorker> _logger;
     private readonly IServiceScopeFactory _scopedFactory;
 
-    private readonly ConcurrentDictionary<string, int> _clicks = new();
+    // Shutdown can be requested more than once. Serializing the entire snapshot,
+    // write, and acknowledgement stops duplication.
+    private readonly SemaphoreSlim _flushGate = new(1, 1);
 
     public ClicksUpdateWorker(
         ClicksUpdateQueue queue,
@@ -23,18 +24,22 @@ public class ClicksUpdateWorker : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var accumulateTask = AccumulateClicksAsync();
-        var flushTask = FlushPeriodicallyAsync(stoppingToken);
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
 
         try
         {
-            await Task.WhenAll(accumulateTask, flushTask);
+            while (await timer.WaitForNextTickAsync(stoppingToken))
+            {
+                await FlushClicksAsync(stoppingToken);
+            }
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { }
     }
 
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
+        // Stop new increments first, then wait for any normal flush to finish
+        // before starting the final flush. Snapshots must never overlap.
         _queue.Complete();
 
         await base.StopAsync(cancellationToken);
@@ -44,49 +49,45 @@ public class ClicksUpdateWorker : BackgroundService
             return;
         }
 
-        await AccumulateClicksAsync();
-
         using var finalFlushTimeout = CancellationTokenSource.CreateLinkedTokenSource(
             cancellationToken
         );
         finalFlushTimeout.CancelAfter(TimeSpan.FromSeconds(10));
 
-        await FlushClicksAsync(finalFlushTimeout.Token);
-    }
-
-    private async Task AccumulateClicksAsync()
-    {
-        await foreach (var job in _queue.ReadAllAsync())
+        try
         {
-            _clicks.AddOrUpdate(job.ShortCode, 1, (_, clickCount) => clickCount + 1);
-        }
-    }
-
-    private async Task FlushPeriodicallyAsync(CancellationToken stoppingToken)
-    {
-        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
-
-        while (await timer.WaitForNextTickAsync(stoppingToken))
-        {
-            await FlushClicksAsync(stoppingToken);
-        }
-    }
-
-    private async Task FlushClicksAsync(CancellationToken stoppingToken)
-    {
-        var batch = new Dictionary<string, int>();
-
-        foreach (var shortCode in _clicks.Keys)
-        {
-            if (_clicks.TryRemove(shortCode, out var clickCount))
+            while (!finalFlushTimeout.IsCancellationRequested)
             {
-                batch[shortCode] = clickCount;
+                if (await FlushClicksAsync(finalFlushTimeout.Token))
+                {
+                    break;
+                }
+
+                await Task.Delay(TimeSpan.FromSeconds(1), finalFlushTimeout.Token);
             }
         }
+        catch (OperationCanceledException) when (finalFlushTimeout.IsCancellationRequested) { }
+    }
 
+    private async Task<bool> FlushClicksAsync(CancellationToken stoppingToken)
+    {
+        await _flushGate.WaitAsync(stoppingToken);
+        try
+        {
+            return await PersistSnapshotAsync(stoppingToken);
+        }
+        finally
+        {
+            _flushGate.Release();
+        }
+    }
+
+    private async Task<bool> PersistSnapshotAsync(CancellationToken stoppingToken)
+    {
+        var batch = _queue.Snapshot();
         if (batch.Count == 0)
         {
-            return;
+            return true;
         }
 
         try
@@ -119,26 +120,21 @@ public class ClicksUpdateWorker : BackgroundService
             }
 
             await transaction.CommitAsync(stoppingToken);
-
-            _logger.LogInformation(
-                "Flushed {UrlCount} URL counters containing {ClickCount} clicks",
-                batch.Count,
-                batch.Values.Sum()
-            );
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception e)
         {
-            // Put the counts back so we can retry on the next flush.
-            foreach (var (shortCode, clickCount) in batch)
-            {
-                _clicks.AddOrUpdate(
-                    shortCode,
-                    clickCount,
-                    (_, existingCount) => existingCount + clickCount
-                );
-            }
-
             _logger.LogError(e, "Failed to flush click counts");
+            return false;
         }
+
+        // The database work succeeded. Remove only persisted counts. Increments received while SQL
+        // was busy stay available for the next tick.
+        _queue.Acknowledge(batch);
+        _logger.LogInformation("Flushed {UrlCount} URL counters", batch.Count);
+        return true;
     }
 }

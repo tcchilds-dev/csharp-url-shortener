@@ -132,7 +132,11 @@ Returns:
 
 - **Background service**: click increments are handled by a background service so
   cache hit redirects remain fast. Batched click counts are written to SQL once
-  per second.
+  per second. Counts are aggregated in memory for up to 10,000 distinct links.
+  At capacity, clicks for tracked
+  links are still accepted; clicks for additional links are dropped. Failed writes
+  retain their counts, and new clicks continue accumulating. Successful writes
+  subtract only the persisted counts, preserving clicks received during the flush.
 
 - **Analytics**: click counts are best effort, they can be lost in situations like
   crashes or forced shutdowns.

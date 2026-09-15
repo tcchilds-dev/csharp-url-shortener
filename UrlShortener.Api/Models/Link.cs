@@ -18,7 +18,7 @@ public class Link
     [MaxLength(7)]
     public required string ShortCode { get; set; }
 
-    public int ClickCount { get; set; }
+    public long ClickCount { get; set; }
 
     [DataType(DataType.Date)]
     public DateTime CreatedAt { get; init; } = DateTime.UtcNow;

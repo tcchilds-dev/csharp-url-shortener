@@ -70,7 +70,7 @@ public static class LinkRoutes
             {
                 var count = await dbContext
                     .Links.Where(link => link.ShortCode == code)
-                    .Select(link => (int?)link.ClickCount)
+                    .Select(link => (long?)link.ClickCount)
                     .SingleOrDefaultAsync(cancellationToken);
 
                 return count is null ? Results.NotFound() : Results.Text($"{count}");

@@ -1,36 +1,85 @@
-using System.Threading.Channels;
-
 public record ClicksUpdateJob(string ShortCode);
 
-public class ClicksUpdateQueue(ILogger<ClicksUpdateQueue> logger)
+public class ClicksUpdateQueue
 {
-    private readonly Channel<ClicksUpdateJob> _channel = Channel.CreateBounded<ClicksUpdateJob>(
-        new BoundedChannelOptions(1000)
-        {
-            FullMode = BoundedChannelFullMode.Wait,
-            SingleReader = true,
-        }
-    );
+    private readonly object _gate = new();
+    private readonly Dictionary<string, long> _clicks = new(StringComparer.Ordinal);
+
+    // Limit distinct links so memory stays bounded whilst allowing clicks to continue accumulating.
+    private const int MaxTrackedLinks = 10_000;
+
+    private readonly ILogger<ClicksUpdateQueue> _logger;
+    private bool _completed;
+
+    public ClicksUpdateQueue(ILogger<ClicksUpdateQueue> logger)
+    {
+        _logger = logger;
+    }
 
     public bool TryEnqueue(ClicksUpdateJob job)
     {
-        if (_channel.Writer.TryWrite(job))
+        lock (_gate)
         {
-            return true;
+            if (!_completed)
+            {
+                if (_clicks.TryGetValue(job.ShortCode, out var count))
+                {
+                    if (count < long.MaxValue)
+                    {
+                        _clicks[job.ShortCode] = count + 1;
+                        return true;
+                    }
+                }
+                else if (_clicks.Count < MaxTrackedLinks)
+                {
+                    _clicks.Add(job.ShortCode, 1);
+                    return true;
+                }
+            }
         }
 
-        logger.LogWarning(
-            "Dropped click for {ShortCode}: click queue is full or stopping",
+        _logger.LogWarning(
+            "Dropped click for {ShortCode}: tracking capacity reached, counter full, or stopping",
             job.ShortCode
         );
-
         return false;
     }
 
-    public void Complete() => _channel.Writer.TryComplete();
-
-    public IAsyncEnumerable<ClicksUpdateJob> ReadAllAsync()
+    // A snapshot lets SQL run without holding the lock. Original entries are preserved until
+    // success.
+    public Dictionary<string, long> Snapshot()
     {
-        return _channel.Reader.ReadAllAsync();
+        lock (_gate)
+        {
+            return new Dictionary<string, long>(_clicks, StringComparer.Ordinal);
+        }
+    }
+
+    // Subtracting (rather than clearing) preserves clicks received during the write.
+    public void Acknowledge(IReadOnlyDictionary<string, long> snapshot)
+    {
+        lock (_gate)
+        {
+            foreach (var (code, persistedCount) in snapshot)
+            {
+                var remaining = _clicks[code] - persistedCount;
+                if (remaining == 0)
+                {
+                    _clicks.Remove(code);
+                }
+                else
+                {
+                    _clicks[code] = remaining;
+                }
+            }
+        }
+    }
+
+    public void Complete()
+    {
+        lock (_gate)
+        {
+            _completed = true;
+        }
     }
 }
