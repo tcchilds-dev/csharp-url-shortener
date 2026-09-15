@@ -3,4 +3,5 @@
     <File Path="compose.yaml" />
   </Folder>
   <Project Path="UrlShortener.Api/UrlShortener.Api.csproj" />
+  <Project Path="tools/LoadTestData/LoadTestData.csproj" />
 </Solution>

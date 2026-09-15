@@ -143,33 +143,87 @@ Returns:
 
 ## Load Testing
 
-Prerequisite: Install [Grafana k6](https://k6.io/open-source/).
+> [!NOTE] Please note that whilst the original basic K6 load test was written by
+> myself. The current load testing script and tool was written by AI. My
+> reasoning for using AI here is that K6 was intended primarily to be used as a
+> way to interact with my codebase, rather than being a significant element of
+> my authored codebase itself.
 
-Run the app:
+Prerequisite: Install [Grafana k6](https://grafana.com/docs/k6/latest/set-up/install-k6/).
+Run all commands from the repository root, with the Docker databases running.
+Start the API in a separate terminal:
 
 ```bash
 dotnet run --project UrlShortener.Api --configuration Release --launch-profile http
 ```
 
-For the default test:
+### Run a workload
+
+With Bash available, the wrapper prepares links, runs k6, and verifies clicks:
 
 ```bash
-k6 run k6-test.js
+./load-test.sh hot -e RATE=1000
+./load-test.sh mixed -e RATE=1000
+./load-test.sh distinct -e RATE=1000
 ```
 
-- Defaults are:
-  - 100 iterations/second for 30 seconds
-  - 20 preallocated virtual users
-  - maximum of 100 virtual users
-- This is a single-popular-link workload, it does not measure performance across
-  many distinct links.
-- Thresholds require all response checks to pass, fewer than 1% failed redirect
-  requests, p95 below 100ms, and zero dropped iterations.
-- You can configure `BASE_URL`, `RATE`, `DURATION`, `PREALLOCATED_VUS`, `MAX_VUS`,
-  and `P95_MS` through k6 environment variables.
+The preparation utility inserts 10,000 links directly into SQL on its first run,
+warms their Redis entries, and writes `load-test-data.json`. Later preparations
+reuse those links and refresh the click-count baseline, they do not reset counts.
+This avoids the API's limit of 10 link creations per minute. The API must have
+started at least once to apply database migrations.
 
-Example custom test:
+Choose one workload per run:
+
+```txt
+SCENARIO:
+hot (default) -> one hot link that every request uses
+mixed         -> ~80% across 10 popular links, 20% across 1000 other links
+distinct      -> one link per iteration
+```
+
+The workload defaults to `hot`; additional arguments are passed to `k6 run`.
+Use `./load-test.sh --help` for examples. The wrapper stops if preparation fails,
+still verifies clicks if k6 thresholds fail, and exits unsuccessfully if either
+k6 or verification fails. The API and databases must already be running.
+
+To run the steps manually instead:
 
 ```bash
-k6 run -e RATE=1000 -e PREALLOCATED_VUS=50 -e MAX_VUS=200 k6-test.js
+dotnet run --project tools/LoadTestData -- prepare
+k6 run -e SCENARIO=mixed -e RATE=1000 k6-test.js
+dotnet run --project tools/LoadTestData -- verify
 ```
+
+Verification compares the SQL click-count increase with
+successful redirects in `k6-summary.json`, polling for up to 30 seconds for the
+worker to catch up. It exits unsuccessfully on a mismatch or a summary from a
+different preparation. Both the k6 thresholds and this separate verification must
+pass. A mismatch can indicate dropped counts, duplicated counts, a backlog that
+has not drained, or unrelated traffic to the test links.
+
+Use these links exclusively for one test at a time. Finish verification before
+preparing another run; preparation assumes the previous worker backlog has drained.
+If verification times out, investigate or retry with a longer timeout before
+capturing another baseline:
+
+```bash
+dotnet run --project tools/LoadTestData -- verify 60
+```
+
+### Settings and Interpretation
+
+- Defaults: 100 iterations/second for 30 seconds, 20 preallocated virtual users,
+  with the maximum also set to 20. Each iteration makes one redirect request.
+  `MAX_VUS` defaults to `PREALLOCATED_VUS`, so the pool does not grow during a run
+  unless explicitly requested. Increase `PREALLOCATED_VUS` to start with a larger
+  pool.
+- Options: `SCENARIO`, `BASE_URL`, `RATE`, `DURATION`, `PREALLOCATED_VUS`,
+  `MAX_VUS`, and `P95_MS`. `SCENARIO` defaults to `hot`.
+- Thresholds require all response checks to pass, at least one successful redirect,
+  fewer than 1% failed redirect requests, p95 below 100ms, and no dropped iterations.
+- The console shows formatted metrics and checks using Grafana's summary helper
+  (downloaded by k6 from `jslib.k6.io`); `k6-summary.json` contains all collected
+  summary metrics, thresholds, and the preparation identifier.
+- All three workloads start with **warm cache entries**. They do not establish
+  cold-cache, dependency-outage, or link-creation performance.
