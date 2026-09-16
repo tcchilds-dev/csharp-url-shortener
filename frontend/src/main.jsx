@@ -150,7 +150,7 @@ function App() {
       <div className="border-t border-base-300" />
       <LinkSection
         title="Use a Link"
-        description="Check cache status and lookup timing. Each request records a click."
+        description="Check cache status and lookup timing. Takes a couple requests to warm up."
         label="Short code"
         placeholder="Ab3dE7f"
         value={code}

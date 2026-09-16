@@ -60,21 +60,21 @@ familiar. A terminal element simulates the terminal commands and outputs.
 
 ## API
 
+### OpenApi Documentation
+
+`localhost:5071/openapi/api.json`
+
 ### Dependency-Aware Health Check
 
 ```txt
 GET /healthz
 
-Returns:
+Description: Returns the health of the application.
 
-    Healthy:
-        200
-
-    Degraded:
-        200
-
-    Unhealthy:
-        503
+Output:
+  Healthy   ->  all checks passed successfully.
+  Degraded  ->  Redis is unavailable.
+  Unhealthy ->  SQL is unavailable.
 ```
 
 ### Create A Link
@@ -85,15 +85,20 @@ POST /shorten
 Content-Type: application/json
 Body: {"url":"https://example.com"}
 
-Returns:
+Description: Creates and returns a new short code for the supplied URL.
 
-    Success:
-        201 Created + JSON string containing seven-character short code
+Success:
+  200 OK
+    Returns the generated code.
 
-    Error:
-        400 Bad Request
-        429 Too Many Requests
+Error:
+  400 Bad Request
+    The supplied URL was invalid.
+
+  429 Too Many Requests
 ```
+
+Notes:
 
 - Only absolute HTTP and HTTPS URLs are accepted.
 - There is a character limit of 4096 characters for the URLs.
@@ -106,29 +111,46 @@ Returns:
 ```txt
 GET /{code}
 
-Returns:
+Description: Redirects the user to the supplied short code's associated URL and
+             records a click.
 
-    Success:
-        302 Found
+Success:
+  302 Found
+    User redirected.
 
-    Error:
-        404 Not Found
+Error:
+  404 Not Found
+    An entry for the supplied code could not be found.
 ```
+
+Notes:
 
 - 302 is necessary for analytics, 301s get cached by the browser.
 - Unknown codes return 404.
 - Codes are case-sensitive.
 
-### Lookup Diagnostics
-
-`GET /{code}/blank` runs the same lookup, cache operations, and click recording
-as the redirect, but returns some stats instead of redirecting to the actual link.
+### Redirect Stats
 
 ```txt
-Cache Hit
-Lookup: 0.21ms
-Handler Completed In: 0.22ms
+GET /{code}/blank
+
+Description: Runs the same lookup, cache operations, and click recording as
+             the redirect, but returns some performance stats instead of
+             redirecting the user.
+
+Success:
+  200 OK
+    Returns stats for the operations.
+    Example:
+      Cache Hit
+      Lookup: 0.21ms
+      Handler Completed In: 0.22ms
+
+Error:
+  404 Not Found
 ```
+
+Notes:
 
 - The times shown only record operations in the handler. Network latency is not
   included.
@@ -141,16 +163,20 @@ Handler Completed In: 0.22ms
 ```txt
 GET /{code}/clicks
 
-Returns:
+Description: Returns the click count for a supplied short link.
 
-    Success:
-        200 OK + click count
+Success:
+  200 OK
+    Returns the click count.
 
-    Error:
-        404 Not Found
+Error:
+  404 Not Found
+    An entry for the supplied code could not be found.
+
 ```
 
-- Unknown codes return 404.
+Notes:
+
 - Click counts update every second when the background service flushes.
 
 ## Decisions
@@ -165,10 +191,10 @@ Returns:
 - **Background service**: click increments are handled by a background service so
   cache hit redirects remain fast. Batched click counts are written to SQL once
   per second. Counts are aggregated in memory for up to 10,000 distinct links.
-  At capacity, clicks for tracked
-  links are still accepted; clicks for additional links are dropped. Failed writes
-  retain their counts, and new clicks continue accumulating. Successful writes
-  subtract only the persisted counts, preserving clicks received during the flush.
+  At capacity, clicks for tracked links are still accepted, clicks for additional
+  links are dropped. Failed writes retain their counts, and new clicks continue
+  accumulating. Successful writes subtract only the persisted counts, preserving
+  clicks received during the flush.
 
 - **Analytics**: click counts are best effort, they can be lost in situations like
   crashes or forced shutdowns.
@@ -205,10 +231,10 @@ docker compose -p url-shortener-tests -f compose.test.yaml down -v
 ## Load Testing
 
 > [!NOTE] Please note that whilst the original basic K6 load test was written by
-> myself. The current load testing script and tool was written by AI. My
-> reasoning for using AI here is that K6 was intended primarily to be used as a
-> way to interact with my codebase, rather than being a significant element of
-> my authored codebase itself.
+> myself. The current load testing script and tool was written by AI, that
+> includes this README section on it. My reasoning for using AI here is that K6
+> was intended primarily to be used as a way to interact with my codebase, rather
+> than being a significant element of my authored codebase itself.
 
 Prerequisite: Install [Grafana k6](https://grafana.com/docs/k6/latest/set-up/install-k6/).
 Run all commands from the repository root, with the Docker databases running.

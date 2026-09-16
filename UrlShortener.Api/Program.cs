@@ -23,12 +23,20 @@ builder
         timeout: TimeSpan.FromSeconds(1)
     );
 
+builder.Services.AddOpenApi("api");
+
 var app = builder.Build();
 
 app.UseHttpsRedirection();
 app.UseRateLimiter();
 
+if (app.Environment.IsDevelopment())
+{
+    app.MapOpenApi();
+}
+
 app.MapHealthChecks("/healthz");
+
 app.MapLinkRoutes();
 
 app.MigrateDb();
