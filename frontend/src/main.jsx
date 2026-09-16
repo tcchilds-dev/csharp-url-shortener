@@ -173,7 +173,7 @@ function App() {
       <div className="border-t border-base-300" />
       <LinkSection
         id="get-clicks"
-        title="Get Click Counts"
+        title="Get Click Count"
         description="Check how many clicks a link has recorded. Recent clicks may take a second to appear."
         label="Short code"
         placeholder="Ab3dE7f"
