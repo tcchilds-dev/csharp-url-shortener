@@ -126,7 +126,6 @@ Error:
 Notes:
 
 - 302 is necessary for analytics, 301s get cached by the browser.
-- Unknown codes return 404.
 - Codes are case-sensitive.
 
 ### Redirect Stats
@@ -156,7 +155,6 @@ Notes:
   included.
 - The lookup time includes a Redis lookup, and in the case of a miss, a
   SQL lookup.
-- These requests do increment the click counter for the link.
 
 ### Click Counts
 

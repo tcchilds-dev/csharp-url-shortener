@@ -94,6 +94,9 @@ code,
 }
 
 .terminal-response {
+  height: 20rem;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
   margin-top: 1.25rem;
   padding-top: 1.25rem;
   border-top: 1px solid

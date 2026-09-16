@@ -8,6 +8,7 @@ const apiOrigin = "http://localhost:5071";
 const shellQuote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
 
 function LinkSection({
+  id,
   title,
   description,
   label,
@@ -60,8 +61,6 @@ function LinkSection({
     }
   }
 
-  const id = title === "Create a Link" ? "create-link" : "use-link";
-
   return (
     <section aria-labelledby={`${id}-heading`} className="space-y-4">
       <div className="space-y-1">
@@ -74,7 +73,14 @@ function LinkSection({
         <pre data-prefix="$">
           <code>{command}</code>
         </pre>
-        <div className="terminal-response" role="status" aria-live="polite" aria-busy={pending}>
+        <div
+          className="terminal-response"
+          role="status"
+          aria-label={`${title} response`}
+          aria-live="polite"
+          aria-busy={pending}
+          tabIndex={0}
+        >
           <pre>
             <code>
               {pending
@@ -122,6 +128,7 @@ function LinkSection({
 function App() {
   const [url, setUrl] = useState("");
   const [code, setCode] = useState("");
+  const [clickCode, setClickCode] = useState("");
 
   return (
     <main className="mx-auto max-w-3xl space-y-10 px-5 py-10 sm:px-8 sm:py-14">
@@ -129,6 +136,7 @@ function App() {
         <h1 className="font-semibold">URL Shortener Playground</h1>
       </header>
       <LinkSection
+        id="create-link"
         title="Create a Link"
         description="Turn a URL into a short link."
         label="Destination URL"
@@ -141,7 +149,10 @@ function App() {
         onSuccess={(text) => {
           try {
             const createdCode = JSON.parse(text);
-            if (typeof createdCode === "string") setCode(createdCode);
+            if (typeof createdCode === "string") {
+              setCode(createdCode);
+              setClickCode(createdCode);
+            }
           } catch {
             /* Keep the raw response visible if it is not JSON. */
           }
@@ -149,6 +160,7 @@ function App() {
       />
       <div className="border-t border-base-300" />
       <LinkSection
+        id="use-link"
         title="Use a Link"
         description="Check cache status and lookup timing. Takes a couple requests to warm up."
         label="Short code"
@@ -157,6 +169,18 @@ function App() {
         onChange={setCode}
         path={`/${encodeURIComponent(code)}/blank`}
         button="Use link"
+      />
+      <div className="border-t border-base-300" />
+      <LinkSection
+        id="get-clicks"
+        title="Get Click Counts"
+        description="Check how many clicks a link has recorded. Recent clicks may take a second to appear."
+        label="Short code"
+        placeholder="Ab3dE7f"
+        value={clickCode}
+        onChange={setClickCode}
+        path={`/${encodeURIComponent(clickCode)}/clicks`}
+        button="Get clicks"
       />
     </main>
   );
