@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using UrlShortener.Api.Data;
 using UrlShortener.Api.RateLimiting;
 using UrlShortener.Api.Routes;
@@ -13,12 +14,21 @@ builder.AddRateLimiters();
 builder.AddSqlDb();
 builder.AddRedisDb();
 
+builder
+    .Services.AddHealthChecks()
+    .AddDbContextCheck<UrlShortenerContext>(name: "sql", failureStatus: HealthStatus.Unhealthy)
+    .AddCheck<RedisHealthCheck>(
+        name: "redis",
+        failureStatus: HealthStatus.Degraded,
+        timeout: TimeSpan.FromSeconds(1)
+    );
+
 var app = builder.Build();
 
 app.UseHttpsRedirection();
 app.UseRateLimiter();
 
-app.MapGet("/health", () => Results.Ok());
+app.MapHealthChecks("/healthz");
 app.MapLinkRoutes();
 
 app.MigrateDb();

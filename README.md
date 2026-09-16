@@ -60,6 +60,23 @@ familiar. A terminal element simulates the terminal commands and outputs.
 
 ## API
 
+### Dependency-Aware Health Check
+
+```txt
+GET /healthz
+
+Returns:
+
+    Healthy:
+        200
+
+    Degraded:
+        200
+
+    Unhealthy:
+        503
+```
+
 ### Create A Link
 
 ```txt
