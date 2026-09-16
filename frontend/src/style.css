@@ -1,0 +1,109 @@
+@import "tailwindcss";
+
+@plugin "daisyui" {
+  themes: false;
+}
+
+@plugin "daisyui/theme" {
+  name: "cat";
+  default: false;
+  prefersdark: false;
+  color-scheme: "dark";
+  --color-base-100: #1e1e2e;
+  --color-base-200: #181825;
+  --color-base-300: #11111b;
+  --color-base-content: #cdd6f4;
+  --color-primary: oklch(58% 0.233 277.117);
+  --color-primary-content: oklch(96% 0.018 272.314);
+  --color-secondary: oklch(65% 0.241 354.308);
+  --color-secondary-content: oklch(94% 0.028 342.258);
+  --color-accent: oklch(77% 0.152 181.912);
+  --color-accent-content: oklch(38% 0.063 188.416);
+  --color-neutral: #b4befe;
+  --color-neutral-content: #11111b;
+  --color-info: oklch(74% 0.16 232.661);
+  --color-info-content: oklch(29% 0.066 243.157);
+  --color-success: #a6e3a1;
+  --color-success-content: oklch(37% 0.077 168.94);
+  --color-warning: #f9e2af;
+  --color-warning-content: oklch(41% 0.112 45.904);
+  --color-error: #f38ba8;
+  --color-error-content: oklch(27% 0.105 12.094);
+  --radius-selector: 0.5rem;
+  --radius-field: 0.25rem;
+  --radius-box: 0.5rem;
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 1;
+  --noise: 0;
+}
+
+html {
+  font-size: 16px;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  background-color: var(--color-base-100);
+  color: var(--color-base-content);
+}
+
+body,
+h1,
+h2,
+p,
+label,
+input,
+button,
+pre,
+code,
+.input,
+.btn,
+.mockup-code {
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+.mockup-code pre,
+.mockup-code code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.mockup-code pre {
+  width: 100%;
+  padding-right: 1.5rem;
+}
+
+.mockup-code code {
+  min-width: 0;
+}
+
+.input,
+.input:focus,
+.input:focus-within {
+  --input-color: color-mix(
+    in oklab,
+    var(--color-base-content) 20%,
+    transparent
+  );
+  outline: none;
+  box-shadow: none;
+}
+
+.terminal-response {
+  margin-top: 1.25rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid
+    color-mix(in oklab, var(--color-base-content) 20%, transparent);
+}
+
+.terminal-response pre {
+  padding-left: 1.5rem;
+}
+
+.terminal-response pre::before {
+  content: none;
+}

@@ -35,13 +35,28 @@ Run the app:
 dotnet run --project UrlShortener.Api --launch-profile http
 ```
 
-> [!NOTE] There is no homepage for this API, it's meant to be used through the terminal.
+The API runs at [http://localhost:5071](http://localhost:5071).
 
 To stop the app:
 
 - `Ctrl+C` will stop the app.
 - Then stop the services with `docker compose down`.
 - `docker compose down -v` also deletes the local database volumes.
+
+### Frontend Playground
+
+With Node.js installed and the API running, open a second terminal:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open the URL printed by Vite (usually [http://localhost:5173](http://localhost:5173)).
+The React playground uses Tailwind CSS and DaisyUI, overkill I know, but it's
+familiar. A terminal element simulates the terminal commands and outputs.
+“Use a Link” calls `/{code}/blank` to show lookup stats.
 
 ## API
 

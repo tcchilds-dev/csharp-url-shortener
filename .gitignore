@@ -8,3 +8,6 @@ post-review-notes.md
 TestResults/
 load-test-data.json
 k6-summary.json
+
+node_modules/
+frontend/dist/
